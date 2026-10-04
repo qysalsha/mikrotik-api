@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: mikrotik-gold-api
+    runtime: node
+    plan: free
+    startCommand: node server.js
+    envVars:
+      - key: FB_DB
+        sync: false
+      - key: FB_AUTH
+        sync: false

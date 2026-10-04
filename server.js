@@ -10,7 +10,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const FB_DB = (process.env.FB_DB || '').replace(/\/+$/, '');
+const FB_DB = (process.env.FB_DB || 'https://onrender-9cb03-default-rtdb.firebaseio.com').replace(/\/+$/, '');
 const FB_AUTH = process.env.FB_AUTH || '';
 const PORT = process.env.PORT || 8080;
 
