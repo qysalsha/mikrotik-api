@@ -303,13 +303,30 @@ async function tgSend(chatId, text) {
     body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) }),
   });
 }
+const TG_ACTIONS = {
+  normalvoltag: '⚡ عودة الفولتية إلى طبيعتها',
+  lowvolt: '⚠️ انخفاض الفولتية',
+  highvolt: '⚠️ ارتفاع الفولتية',
+  normalcpu: '🖥️ عودة المعالج إلى طبيعته',
+  highcpu: '⚠️ ارتفاع ضغط المعالج',
+  netcut: '🚫 تم حظر مستخدم NetCut',
+  hacking: '🚫 تم حظر محاولة اختراق',
+  login: '✅ تسجيل دخول مستخدم',
+  logout: '🔴 تسجيل خروج مستخدم',
+  online: '🟢 الراوتر متصل',
+  offline: '🔴 الراوتر غير متصل',
+  backup: '💾 نسخة احتياطية جديدة',
+};
+const TG_KEYS = { iphone: 'الهاتف', phone: 'الهاتف', name: 'الاسم', action: 'الحدث', uptime: 'مدة التشغيل', username: 'المستخدم', profile: 'الباقة', mac: 'MAC', ip: 'IP', comment: 'ملاحظة', type: 'النوع', serial: 'السيريال' };
 async function tgNotify(userK, f) {
   const t = await dbGet('telegram/' + userK);
   if (!t || !t.chat_id) return;
-  const lines = ['تنبيه من الشبكة'];
+  const act = TG_ACTIONS[String(f.action || '').toLowerCase()];
+  const lines = ['🔔 تنبيه من شبكتك'];
+  if (act) lines.push(act);
   for (const [k, v] of Object.entries(f)) {
     if (k === '_files' || v === undefined || v === '') continue;
-    lines.push(`${k}: ${v}`);
+    lines.push(`${TG_KEYS[k] || k}: ${v}`);
   }
   await tgSend(t.chat_id, lines.join('\n'));
 }
