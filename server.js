@@ -217,13 +217,23 @@ const handlers = {
   async addnewcloud(f, res) {
     const p = key(f.phone);
     const u = (await dbGet('users/' + p)) || {};
-    const used = vals(await dbGet('clouds/' + p)).length;
+    const clouds = vals(await dbGet('clouds/' + p));
+    const used = clouds.length;
     const allowed = u.network_allowed ?? 5;
+    const name = f.name || '', server = f.server || '';
+    const existing = clouds.find((c) => c.name === name || c.server === server);
+    if (existing)
+      return J(res, { error: 'false', message: 'NAT rules created for existing user', name: existing.name, network_allowed: allowed, secretComment: existing.secretComment, server: existing.server, status: 'success', usedClouds: used });
     if (used >= allowed)
       return J(res, { error: 'true', message: 'limit reached', name: '', network_allowed: allowed, secretComment: '', server: '', status: 'fail', usedClouds: used });
-    const cloud = { name: f.name || '', server: f.server || '', secretComment: f.secretComment || '' };
+    const cloud = {
+      name, server,
+      secretComment: 'g-' + crypto.randomBytes(6).toString('hex'),
+      apiPort: f.apiPort || '', wwwPort: f.wwwPort || '', winboxPort: f.winboxPort || '',
+      created: today(),
+    };
     await dbPush('clouds/' + p, cloud);
-    J(res, { error: 'false', message: 'added', name: cloud.name, network_allowed: allowed, secretComment: cloud.secretComment, server: cloud.server, status: 'ok', usedClouds: used + 1 });
+    J(res, { error: 'false', message: 'New cloud added successfully', name: cloud.name, network_allowed: allowed, secretComment: cloud.secretComment, server: cloud.server, status: 'success', usedClouds: used + 1 });
   },
   async gettingcloudinfo(f, res) {
     const p = key(f.phone);
