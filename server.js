@@ -48,6 +48,21 @@ async function dbDel(path) {
   if (!r.ok) throw new Error('RTDB DELETE ' + path + ': ' + r.status);
   return r.json();
 }
+// find the user record under any common phone format (+967..., 00967..., 0..., bare)
+async function userKey(phone) {
+  const raw = String(phone || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  const cand = [raw, digits];
+  if (digits.length >= 9) {
+    const last9 = digits.slice(-9);
+    cand.push(last9, '+967' + last9, '967' + last9, '00967' + last9, '0' + last9);
+  }
+  for (const c of [...new Set(cand)]) {
+    const k = key(c);
+    if (await dbGet('users/' + k)) return k;
+  }
+  return key(raw);
+}
 const vals = (o) => (o ? Object.values(o) : []);
 const today = () => new Date().toISOString().slice(0, 10);
 const plusDays = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
@@ -93,19 +108,19 @@ const J = (res, obj, code = 200) => {
 const handlers = {
   // ============ index2.php ============
   async finduser(f, res) {
-    const u = await dbGet('users/' + key(f.phone));
+    const u = await dbGet('users/' + await userKey(f.phone));
     if (!u) return J(res, { error: true, message: 'Nothing found' });
     if (f.password && u.password && u.password !== f.password)
       return J(res, { error: true, message: 'Wrong password' });
     if (f.device_sn) {
       if (u.isbind === 1 && u.device_sn && u.device_sn !== f.device_sn)
         return J(res, { error: true, message: 'Device bound to another' });
-      if (!u.device_sn) await dbPatch('users/' + key(f.phone), { device_sn: f.device_sn });
+      if (!u.device_sn) await dbPatch('users/' + await userKey(f.phone), { device_sn: f.device_sn });
     }
     J(res, { error: false, message: [u] });
   },
   async insertuser(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     if (await dbGet('users/' + p))
       return J(res, { error: true, message: 'Already exists' });
     const user = {
@@ -119,7 +134,7 @@ const handlers = {
     J(res, { error: false, message: [user] });
   },
   async resetpassword(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const u = await dbGet('users/' + p);
     if (!u) return J(res, { error: '1', message: 'Nothing found' });
     const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -127,11 +142,11 @@ const handlers = {
     J(res, { error: '0', message: code });
   },
   async getrouters(f, res) {
-    const list = vals(await dbGet('routers/' + key(f.phone)));
+    const list = vals(await dbGet('routers/' + await userKey(f.phone)));
     J(res, { error: false, routers: list });
   },
   async addrouter(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const r = {
       id: Date.now(), phone: f.phone || '', host: f.host || '',
       username: f.username || '', password: f.password || '',
@@ -142,7 +157,7 @@ const handlers = {
     J(res, { error: false, message: 'added' });
   },
   async editrouter(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const updates = {
       host: f.host || '', username: f.username || '', password: f.password || '',
       networkname: f.networkname || '', vpnusername: f.vpnusername || '',
@@ -155,20 +170,20 @@ const handlers = {
     J(res, { error: false, message: 'done' });
   },
   async removerouter(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const list = await dbGet('routers/' + p) || {};
     for (const [k, r] of Object.entries(list))
       if (String(r.id) === String(f.id) || r.host === f.id) await dbDel(`routers/${p}/${k}`);
     J(res, { error: false, message: 'done' });
   },
   async router(f, res) { // addOrUpdateRouter (serial,phone,type,payed)
-    await dbPatch('users/' + key(f.phone), {
+    await dbPatch('users/' + await userKey(f.phone), {
       serial: f.serial || '', router_type: f.type || '', payed: parseInt(f.payed || '0') || 0,
     });
     J(res, { error: false, message: 'ok', suspend: false });
   },
   async checkandblock(f, res) {
-    const u = await dbGet('users/' + key(f.phone));
+    const u = await dbGet('users/' + await userKey(f.phone));
     const blocked = u && u.blocked === true;
     J(res, { error: String(blocked), message: blocked ? 'blocked' : 'ok' });
   },
@@ -182,7 +197,7 @@ const handlers = {
     J(res, { error: false, message: '', pages });
   },
   async updateonserver(f, res) { // updateOnServer -> cards
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     await dbPatch(`cards/${p}/${key(f.name)}`, {
       token: f.token || '', router_id: f.router_id || '', name: f.name || '',
       password: f.password || '', profile: f.profile || '', price: f.price || '',
@@ -191,7 +206,7 @@ const handlers = {
     J(res, { error: 'false', message: 'ok' });
   },
   async updateuserpppinfo(f, res) {
-    await dbPatch('users/' + key(f.phone), {
+    await dbPatch('users/' + await userKey(f.phone), {
       ppp_methode: f.ppp_methode || '', ppp_network: f.ppp_network || '',
       ppp_note: f.ppp_note || '', ppp_phone: f.ppp_phone || '',
       password: f.password || undefined,
@@ -201,7 +216,7 @@ const handlers = {
 
   // ============ backup.php ============
   async backup(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const t = (f.type || '').toLowerCase().includes('ppp') ? 'ppp' : 'hot';
     const list = vals(await dbGet(`backups/${t}/${p}`));
     J(res, list); // app expects a bare JSON array of BackupHotItem/BackupPPPItem
@@ -209,13 +224,13 @@ const handlers = {
 
   // ============ server.php ============
   async getcert(f, res) {
-    const cert = (await dbGet('certs/' + key(f.phone))) || '';
+    const cert = (await dbGet('certs/' + await userKey(f.phone))) || '';
     J(res, { cert, result: cert ? 'success' : 'empty' });
   },
 
   // ============ mikrotik_handler.php ============
   async addnewcloud(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const u = (await dbGet('users/' + p)) || {};
     const clouds = vals(await dbGet('clouds/' + p));
     const used = clouds.length;
@@ -236,14 +251,14 @@ const handlers = {
     J(res, { error: 'false', message: 'New cloud added successfully', name: cloud.name, network_allowed: allowed, secretComment: cloud.secretComment, server: cloud.server, status: 'success', usedClouds: used + 1 });
   },
   async gettingcloudinfo(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const u = (await dbGet('users/' + p)) || {};
     const used = vals(await dbGet('clouds/' + p)).length;
     const allowed = u.network_allowed ?? 5;
     J(res, { network_allowed: String(allowed), remaining_clouds: String(Math.max(0, allowed - used)), used_clouds: String(used) });
   },
   async getrouterinfo(f, res) {
-    const info = (await dbGet('routerinfo/' + key(f.phone))) || {};
+    const info = (await dbGet('routerinfo/' + await userKey(f.phone))) || {};
     J(res, {
       last_logged_out: info.last_logged_out || '', lookup_name: info.lookup_name || '',
       original_name: info.original_name || '', state: info.state || 'online', uptime: info.uptime || '',
@@ -252,11 +267,11 @@ const handlers = {
 
   // ============ upload.php ============
   async getpics(f, res) {
-    const list = vals(await dbGet('images/' + key(f.phone)));
+    const list = vals(await dbGet('images/' + await userKey(f.phone)));
     J(res, { error: false, images: list });
   },
   async uploadimage(f, res) {
-    const p = key(f.phone);
+    const p = await userKey(f.phone);
     const file = (f._files && Object.values(f._files)[0]) || null;
     const item = {
       id: Date.now(), phone: p, name: f.name || (file && file.filename) || '',
@@ -269,12 +284,66 @@ const handlers = {
 
   // ============ notify.php (called by MikroTik router scripts) ============
   async notify(f, res) {
-    const p = key(f.iphone || f.phone || 'unknown');
+    const p = await userKey(f.iphone || f.phone || 'unknown');
     await dbPush('notify/' + p, { ...f, _files: undefined, ts: Date.now() });
     await dbPut('routerinfo/' + p, { last_logged_out: today(), state: 'online', uptime: f.uptime || '', lookup_name: f.name || '', original_name: f.name || '' });
     J(res, { ok: true });
+    // forward to telegram (don't block the response)
+    tgNotify(p, f).catch((e) => console.error('tg:', e.message));
   },
 };
+
+// ---------- telegram bot ----------
+const TG_TOKEN = process.env.TG_TOKEN || '8964611095:AAHmlwr3795J_fwjpY02bb4lhuY9f3uLBiw';
+const tgApi = (m) => `https://api.telegram.org/bot${TG_TOKEN}/${m}`;
+async function tgSend(chatId, text) {
+  if (!TG_TOKEN || !chatId) return;
+  await fetch(tgApi('sendMessage'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) }),
+  });
+}
+async function tgNotify(userK, f) {
+  const t = await dbGet('telegram/' + userK);
+  if (!t || !t.chat_id) return;
+  const lines = ['تنبيه من الشبكة'];
+  for (const [k, v] of Object.entries(f)) {
+    if (k === '_files' || v === undefined || v === '') continue;
+    lines.push(`${k}: ${v}`);
+  }
+  await tgSend(t.chat_id, lines.join('\n'));
+}
+async function tgPoll() {
+  if (!TG_TOKEN) return;
+  let offset = (await dbGet('meta/tg_offset')) || 0;
+  console.log('telegram polling started');
+  for (;;) {
+    try {
+      const r = await fetch(tgApi('getUpdates') + `?timeout=50&offset=${offset}`);
+      const j = await r.json();
+      for (const u of j.result || []) {
+        offset = u.update_id + 1;
+        const msg = u.message;
+        if (!msg || !msg.chat) continue;
+        const text = (msg.text || '').trim();
+        const digits = text.replace(/\D/g, '');
+        if (text === '/start') {
+          await tgSend(msg.chat.id, 'أهلاً بك في تنبيهات ميكروتك الذهبي 🔔\nأرسل رقم حسابك في التطبيق (مثال: 784152069) لربط التنبيهات.');
+        } else if (digits.length >= 7) {
+          const k = await userKey(digits);
+          await dbPut('telegram/' + k, { chat_id: msg.chat.id, phone: digits, linked: today() });
+          await tgSend(msg.chat.id, `✅ تم ربط حسابك ${digits} بالتنبيهات بنجاح`);
+        } else {
+          await tgSend(msg.chat.id, 'أرسل رقم حسابك في التطبيق لربط التنبيهات.');
+        }
+      }
+      if ((j.result || []).length) await dbPut('meta/tg_offset', offset);
+    } catch (e) {
+      console.error('tgPoll:', e.message);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
 
 // ---------- router ----------
 http.createServer(async (req, res) => {
@@ -326,4 +395,4 @@ http.createServer(async (req, res) => {
     console.error(e);
     J(res, { error: true, message: String(e.message || e) }, 500);
   }
-}).listen(PORT, () => console.log(`adapter listening on :${PORT} -> ${FB_DB}`));
+}).listen(PORT, () => { console.log(`adapter listening on :${PORT} -> ${FB_DB}`); tgPoll(); });
